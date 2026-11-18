@@ -1,0 +1,989 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 97%;         /* #F5F7FA */
+    --foreground: 210 29% 24%;         /* #2C3E50 */
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 29% 24%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 29% 24%;
+
+    --primary: 174 100% 35%;           /* #00B8A9 */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 174 76% 45%;
+
+    --secondary: 210 25% 94%;
+    --secondary-foreground: 210 29% 24%;
+
+    --muted: 210 25% 95%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 282 44% 47%;             /* #8E44AD */
+    --accent-foreground: 0 0% 100%;
+
+    --success: 145 63% 49%;            /* #2ECC71 */
+    --success-foreground: 0 0% 100%;
+    --warning: 37 90% 51%;             /* #F39C12 */
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 6 78% 57%;          /* #E74C3C */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 30% 90%;
+    --input: 214 30% 90%;
+    --ring: 174 100% 35%;
+
+    --radius: 1rem;
+
+    --gradient-primary: linear-gradient(135deg, hsl(174 100% 35%), hsl(199 89% 48%));
+    --gradient-accent: linear-gradient(135deg, hsl(282 44% 47%), hsl(340 82% 62%));
+    --gradient-hero: linear-gradient(135deg, hsl(174 100% 35%) 0%, hsl(199 89% 48%) 55%, hsl(221 83% 53%) 100%);
+    --gradient-soft: linear-gradient(180deg, hsl(210 20% 97%), hsl(210 25% 94%));
+    --shadow-soft: 0 8px 24px -6px hsl(174 100% 35% / 0.22);
+    --shadow-card: 0 8px 24px rgba(0,0,0,.08);
+    --shadow-hover: 0 16px 36px -12px hsl(174 100% 35% / 0.28);
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 210 29% 24%;
+    --sidebar-primary: 174 100% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 174 60% 95%;
+    --sidebar-accent-foreground: 174 84% 28%;
+    --sidebar-border: 214 30% 92%;
+    --sidebar-ring: 174 100% 35%;
+  }
+
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32% 20%;
+    --input: 217 32% 20%;
+    --ring: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { font-family: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif; }
+  body { @apply bg-background text-foreground; font-family: 'Poppins', 'Inter', system-ui, sans-serif; font-feature-settings: "cv02","cv03","cv04","cv11"; }
+  h1, h2, h3, h4, h5, h6 { font-family: 'Poppins', 'Inter', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.01em; }
+
+  /* Bảng trong đề thi & câu hỏi: font-size nội dung trong table, th, td = font-size hiện tại của câu hỏi */
+  .question-content table,
+  .question-content thead,
+  .question-content tbody,
+  .question-content tfoot,
+  .question-content tr,
+  .question-content th,
+  .question-content td,
+  .rich-text-root table,
+  .rich-text-root thead,
+  .rich-text-root tbody,
+  .rich-text-root tfoot,
+  .rich-text-root tr,
+  .rich-text-root th,
+  .rich-text-root td,
+  table.rich-table,
+  table.rich-table thead,
+  table.rich-table tbody,
+  table.rich-table tfoot,
+  table.rich-table tr,
+  table.rich-table th,
+  table.rich-table td {
+    font-size: inherit !important;
+  }
+
+  .question-content th,
+  .question-content td,
+  .rich-text-root th,
+  .rich-text-root td,
+  table.rich-table th,
+  table.rich-table td {
+    font-size: inherit !important;
+    line-height: inherit;
+  }
+
+  .code-content,
+  pre.code-content {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
+    border: 1px solid #e2e8f0 !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere;
+    tab-size: 4 !important;
+    -moz-tab-size: 4 !important;
+    font-family: Consolas, "Courier New", monospace !important;
+  }
+  .code-content code,
+  pre.code-content code,
+  code.hljs {
+    background-color: transparent !important;
+    color: inherit !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere;
+    tab-size: 4 !important;
+    -moz-tab-size: 4 !important;
+    font-family: Consolas, "Courier New", monospace !important;
+  }
+  .code-content span,
+  pre.code-content span,
+  .code-content * {
+    white-space: inherit !important;
+    tab-size: inherit !important;
+    -moz-tab-size: inherit !important;
+    font-family: inherit !important;
+  }
+
+
+  /* Dark mode support: high contrast light text on dark background */
+  .dark .code-content,
+  .dark pre.code-content {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+  }
+  .dark .code-content code,
+  .dark pre.code-content code,
+  .dark code.hljs {
+    background-color: transparent !important;
+    color: #f8fafc !important;
+  }
+  .dark .code-content .hljs-keyword,
+  .dark .code-content .hljs-selector-tag,
+  .dark .code-content .hljs-subst {
+    color: #f472b6 !important;
+    font-weight: 600;
+  }
+  .dark .code-content .hljs-string,
+  .dark .code-content .hljs-title,
+  .dark .code-content .hljs-section,
+  .dark .code-content .hljs-attribute,
+  .dark .code-content .hljs-literal {
+    color: #38bdf8 !important;
+  }
+  .dark .code-content .hljs-comment,
+  .dark .code-content .hljs-quote {
+    color: #94a3b8 !important;
+    font-style: italic;
+  }
+  .dark .code-content .hljs-number {
+    color: #fb923c !important;
+  }
+  .dark .code-content .hljs-name,
+  .dark .code-content .hljs-tag {
+    color: #4ade80 !important;
+  }
+
+  /* =========================================================================
+     THIẾT LẬP FONT TIMES NEW ROMAN CHO CHẾ ĐỘ TỪNG CÂU HỎI & CHẾ ĐỘ ĐỘI NHÓM
+     ========================================================================= */
+  .font-times-new-roman {
+    font-family: "Times New Roman", Times, serif !important;
+  }
+  .font-times-new-roman *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-family: "Times New Roman", Times, serif !important;
+  }
+  .font-times-new-roman button,
+  .font-times-new-roman input,
+  .font-times-new-roman textarea,
+  .font-times-new-roman select {
+    font-family: "Times New Roman", Times, serif !important;
+  }
+
+  /* BẢO TOÀN TUYỆT ĐỐI FONT MONOSPACE CHO CODE / MÃ NGUỒN */
+  .font-times-new-roman pre,
+  .font-times-new-roman code,
+  .font-times-new-roman .hljs,
+  .font-times-new-roman .code-content,
+  .font-times-new-roman pre *,
+  .font-times-new-roman code *,
+  .font-times-new-roman .hljs *,
+  .font-times-new-roman .code-content * {
+    font-family: Consolas, "Courier New", monospace !important;
+    white-space: pre-wrap !important;
+    tab-size: 4 !important;
+    -moz-tab-size: 4 !important;
+  }
+
+  /* ĐỒNG BỘ CỠ CHỮ KẾ THỪA CHO CÁC PHẦN TỬ CON (KHÔNG ÁP DỤNG TRÊN CHÍNH CONTAINER) */
+  .quiz-sync-font-size:not(.quiz-question-text-80):not(.quiz-option-text-70),
+  .quiz-sync-font-size:not(.quiz-question-text-80):not(.quiz-option-text-70) *:not(.quiz-question-text-80):not(.quiz-question-text-80 *):not(.quiz-option-text-70):not(.quiz-option-text-70 *):not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .team-sync-font-size *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .standard-sync-font-size *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .question-content *:not(.quiz-question-tv):not(.quiz-question-tv *):not(.quiz-question-text-80):not(.quiz-question-text-80 *):not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *) {
+    font-size: inherit !important;
+  }
+
+  /* =========================================================================
+     CỠ CHỮ GỌN GÀNG, DỄ ĐỌC CHO CHẾ ĐỘ TIÊU CHUẨN (STANDARD MODE)
+     - Nội dung câu hỏi: 20px (tăng +2px từ 18px), in đậm (font-weight: 700)
+     - Phương án trả lời Phần I / Phần II / Phần III: 17px
+     - Tiêu đề các phần thi: 18px
+     - Thông tin phụ: 14px
+     - Font: Times New Roman thống nhất (bảo toàn code monospace, KaTeX, bảng biểu)
+     ========================================================================= */
+  .standard-question-stem {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    line-height: 1.5 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+  .standard-question-stem.is-short,
+  .standard-question-stem.is-long {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    line-height: 1.5 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+  .standard-question-stem .code-content,
+  .standard-question-stem pre.code-content,
+  .standard-question-stem code.hljs {
+    font-weight: 400;
+  }
+  .standard-question-stem .katex {
+    font-weight: 400 !important;
+  }
+  .standard-question-stem .rich-table {
+    font-weight: 400;
+  }
+
+  .standard-option-text {
+    font-size: 17px !important;
+    line-height: 1.42 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+  .standard-option-text.is-short,
+  .standard-option-text.is-long {
+    font-size: 17px !important;
+    line-height: 1.42 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+
+  .standard-part-title {
+    font-size: 18px !important;
+    line-height: 1.35 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+
+  .standard-secondary-text {
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+
+  .standard-take-layout {
+    font-family: "Times New Roman", Times, Georgia, serif;
+  }
+  .standard-take-layout sub,
+  .standard-take-layout sup {
+    font-size: 0.75em !important;
+  }
+  .standard-take-layout .rich-text-root img {
+    max-height: 260px;
+  }
+  .standard-take-layout .rich-text-root .code-content,
+  .standard-take-layout pre.code-content {
+    margin-top: 0.375rem;
+    margin-bottom: 0.375rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 14px !important;
+    line-height: 1.45 !important;
+    font-family: Consolas, "Courier New", monospace !important;
+  }
+  .standard-take-layout .rich-table th,
+  .standard-take-layout .rich-table td {
+    padding: 0.35rem 0.6rem;
+  }
+
+  /* =========================================================================
+     CỠ CHỮ NỘI DUNG CÂU HỎI TRONG CHẾ ĐỘ ĐỘI NHÓM (-3PX)
+     - Mobile: 34px
+     - Desktop (sm >= 640px): 38px
+     ========================================================================= */
+  .team-question-stem {
+    font-size: 34px !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+  @media (min-width: 640px) {
+    .team-question-stem {
+      font-size: 38px !important;
+    }
+  }
+
+  /* =========================================================================
+     CỠ CHỮ PHƯƠNG ÁN TRẢ LỜI TRONG CHẾ ĐỘ ĐỘI NHÓM (-2PX)
+     - Mobile: 26px
+     - Desktop (sm >= 640px): 30px
+     ========================================================================= */
+  .team-option-text {
+    font-size: 26px !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+  }
+  @media (min-width: 640px) {
+    .team-option-text {
+      font-size: 30px !important;
+    }
+  }
+}
+
+@layer utilities {
+  .bg-gradient-primary { background: var(--gradient-primary); }
+  .bg-gradient-accent { background: var(--gradient-accent); }
+  .bg-gradient-hero { background: var(--gradient-hero); }
+  .bg-gradient-soft { background: var(--gradient-soft); }
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-card { box-shadow: var(--shadow-card); }
+  .shadow-hover { box-shadow: var(--shadow-hover); }
+  .animate-fade-in { animation: fadeIn .35s ease-out both; }
+  .animate-slide-up { animation: slideUp .4s ease-out both; }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+  .card-hover { transition: transform .25s ease, box-shadow .25s ease; }
+  .card-hover:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
+  .hover-scale { transition: transform .2s ease; }
+  .hover-scale:hover { transform: scale(1.03); }
+
+  @keyframes scoreBump {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.04); filter: brightness(1.3) drop-shadow(0 0 24px rgba(250, 204, 21, 0.8)); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+  @keyframes confettiFall {
+    0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(105vh) rotate(720deg); opacity: 0.2; }
+  }
+  .confetti-fall {
+    animation-name: confettiFall;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+  @keyframes champGlow {
+    0%, 100% { box-shadow: 0 0 20px rgba(250, 204, 21, 0.5), 0 10px 0 #0f172a; }
+    50% { box-shadow: 0 0 45px rgba(250, 204, 21, 0.9), 0 10px 0 #0f172a; }
+  }
+  @keyframes trophyBounce {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-6px) rotate(4deg); }
+  }
+  .animate-trophy {
+    animation: trophyBounce 1.8s ease-in-out infinite;
+  }
+}
+
+/* =========================================================================
+   CỠ CHỮ TỐI ƯU TRÌNH CHIẾU TRÊN TV / MÁY CHIẾU (1920x1080) TRONG CHẾ ĐỘ TỪNG CÂU HỎI:
+   - Nội dung câu hỏi = Chuẩn 47px (tăng đúng +5px từ 42px, clamp(35px, 2.45vw, 47px))
+   - Các phương án trả lời = Chuẩn 37px (tăng đúng +5px từ 32px, clamp(27px, 1.95vw, 37px))
+   - Font: Times New Roman ("Times New Roman", Times, Georgia, serif)
+   - Bố cục phương án: 2 cột × 2 hàng (2x2 grid)
+   - Đồng bộ tuyệt đối: Toàn bộ thẻ HTML, RichText, Word import (p, span, div, strong, b, em, i, u, s, font, li, ul, ol, td, th, table) trong cùng câu hỏi/phương án đều có cùng cỡ chữ
+   - Bảo toàn tuyệt đối code monospace (pre, code, .code-content, .hljs), KaTeX (.katex), SVG (svg), ảnh
+   ========================================================================= */
+:root {
+  --quiz-q-font-size: clamp(35px, 2.45vw, 47px);
+  --quiz-opt-font-size: clamp(27px, 1.95vw, 37px);
+}
+
+.quiz-question-tv,
+.quiz-question-text-80,
+.quiz-question-tv p,
+.quiz-question-tv span,
+.quiz-question-tv div,
+.quiz-question-tv strong,
+.quiz-question-tv b,
+.quiz-question-tv em,
+.quiz-question-tv i,
+.quiz-question-tv u,
+.quiz-question-tv s,
+.quiz-question-tv font,
+.quiz-question-tv li,
+.quiz-question-tv ul,
+.quiz-question-tv ol,
+.quiz-question-tv td,
+.quiz-question-tv th,
+.quiz-question-tv table,
+.quiz-question-tv label,
+.quiz-question-tv .rich-text-root,
+.quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+.quiz-question-text-80 p,
+.quiz-question-text-80 span,
+.quiz-question-text-80 div,
+.quiz-question-text-80 strong,
+.quiz-question-text-80 b,
+.quiz-question-text-80 em,
+.quiz-question-text-80 i,
+.quiz-question-text-80 u,
+.quiz-question-text-80 s,
+.quiz-question-text-80 font,
+.quiz-question-text-80 li,
+.quiz-question-text-80 ul,
+.quiz-question-text-80 ol,
+.quiz-question-text-80 td,
+.quiz-question-text-80 th,
+.quiz-question-text-80 table,
+.quiz-question-text-80 label,
+.quiz-question-text-80 .rich-text-root,
+.quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *) {
+  font-size: var(--quiz-q-font-size, 47px) !important;
+  line-height: 1.4 !important;
+  font-family: "Times New Roman", Times, Georgia, serif !important;
+}
+
+.quiz-option-tv,
+.quiz-option-text-70,
+.quiz-option-tv p,
+.quiz-option-tv span,
+.quiz-option-tv div,
+.quiz-option-tv strong,
+.quiz-option-tv b,
+.quiz-option-tv em,
+.quiz-option-tv i,
+.quiz-option-tv u,
+.quiz-option-tv s,
+.quiz-option-tv font,
+.quiz-option-tv li,
+.quiz-option-tv ul,
+.quiz-option-tv ol,
+.quiz-option-tv td,
+.quiz-option-tv th,
+.quiz-option-tv table,
+.quiz-option-tv label,
+.quiz-option-tv input,
+.quiz-option-tv .rich-text-root,
+.quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+.quiz-option-text-70 p,
+.quiz-option-text-70 span,
+.quiz-option-text-70 div,
+.quiz-option-text-70 strong,
+.quiz-option-text-70 b,
+.quiz-option-text-70 em,
+.quiz-option-text-70 i,
+.quiz-option-text-70 u,
+.quiz-option-text-70 s,
+.quiz-option-text-70 font,
+.quiz-option-text-70 li,
+.quiz-option-text-70 ul,
+.quiz-option-text-70 ol,
+.quiz-option-text-70 td,
+.quiz-option-text-70 th,
+.quiz-option-text-70 table,
+.quiz-option-text-70 label,
+.quiz-option-text-70 input,
+.quiz-option-text-70 .rich-text-root,
+.quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *) {
+  font-size: var(--quiz-opt-font-size, 37px) !important;
+  line-height: 1.35 !important;
+  font-family: "Times New Roman", Times, Georgia, serif !important;
+}
+
+/* Lớp co giãn tự động khi câu hỏi dài (được tăng +5px tương ứng) */
+.quiz-q-compact,
+.quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+  font-size: clamp(31px, 2.1vw, 39px) !important;
+}
+
+.quiz-opt-compact,
+.quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+  font-size: clamp(25px, 1.6vw, 31px) !important;
+}
+
+/* =========================================================================
+   CHẾ ĐỘ TỪNG CÂU HỎI - RESPONSIVE CHO MOBILE VÀ TABLET:
+   - Mobile (< 640px):
+       + Câu hỏi: 30px
+       + Phương án (Phần I, II, III): 22px
+   - Tablet (≥ 640px và < 1024px):
+       + Câu hỏi: 32px
+       + Phương án (Phần I, II, III): 24px
+   - Desktop (≥ 1024px):
+       + GIỮ NGUYÊN HOÀN TOÀN cỡ chữ hiện tại
+   ========================================================================= */
+
+@media (max-width: 639.98px) {
+  :root {
+    --quiz-q-font-size: 30px;
+    --quiz-opt-font-size: 22px;
+  }
+
+  .quiz-question-tv,
+  .quiz-question-text-80,
+  .quiz-question-tv p,
+  .quiz-question-tv span,
+  .quiz-question-tv div,
+  .quiz-question-tv strong,
+  .quiz-question-tv b,
+  .quiz-question-tv em,
+  .quiz-question-tv i,
+  .quiz-question-tv u,
+  .quiz-question-tv s,
+  .quiz-question-tv font,
+  .quiz-question-tv li,
+  .quiz-question-tv ul,
+  .quiz-question-tv ol,
+  .quiz-question-tv td,
+  .quiz-question-tv th,
+  .quiz-question-tv table,
+  .quiz-question-tv label,
+  .quiz-question-tv .rich-text-root,
+  .quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-question-text-80 p,
+  .quiz-question-text-80 span,
+  .quiz-question-text-80 div,
+  .quiz-question-text-80 strong,
+  .quiz-question-text-80 b,
+  .quiz-question-text-80 em,
+  .quiz-question-text-80 i,
+  .quiz-question-text-80 u,
+  .quiz-question-text-80 s,
+  .quiz-question-text-80 font,
+  .quiz-question-text-80 li,
+  .quiz-question-text-80 ul,
+  .quiz-question-text-80 ol,
+  .quiz-question-text-80 td,
+  .quiz-question-text-80 th,
+  .quiz-question-text-80 table,
+  .quiz-question-text-80 label,
+  .quiz-question-text-80 .rich-text-root,
+  .quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-q-compact,
+  .quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 30px !important;
+  }
+
+  .quiz-option-tv,
+  .quiz-option-text-70,
+  .quiz-option-tv p,
+  .quiz-option-tv span,
+  .quiz-option-tv div,
+  .quiz-option-tv strong,
+  .quiz-option-tv b,
+  .quiz-option-tv em,
+  .quiz-option-tv i,
+  .quiz-option-tv u,
+  .quiz-option-tv s,
+  .quiz-option-tv font,
+  .quiz-option-tv li,
+  .quiz-option-tv ul,
+  .quiz-option-tv ol,
+  .quiz-option-tv td,
+  .quiz-option-tv th,
+  .quiz-option-tv table,
+  .quiz-option-tv label,
+  .quiz-option-tv input,
+  .quiz-option-tv .rich-text-root,
+  .quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-option-text-70 p,
+  .quiz-option-text-70 span,
+  .quiz-option-text-70 div,
+  .quiz-option-text-70 strong,
+  .quiz-option-text-70 b,
+  .quiz-option-text-70 em,
+  .quiz-option-text-70 i,
+  .quiz-option-text-70 u,
+  .quiz-option-text-70 s,
+  .quiz-option-text-70 font,
+  .quiz-option-text-70 li,
+  .quiz-option-text-70 ul,
+  .quiz-option-text-70 ol,
+  .quiz-option-text-70 td,
+  .quiz-option-text-70 th,
+  .quiz-option-text-70 table,
+  .quiz-option-text-70 label,
+  .quiz-option-text-70 input,
+  .quiz-option-text-70 .rich-text-root,
+  .quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-opt-compact,
+  .quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 22px !important;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  :root {
+    --quiz-q-font-size: 32px;
+    --quiz-opt-font-size: 24px;
+  }
+
+  .quiz-question-tv,
+  .quiz-question-text-80,
+  .quiz-question-tv p,
+  .quiz-question-tv span,
+  .quiz-question-tv div,
+  .quiz-question-tv strong,
+  .quiz-question-tv b,
+  .quiz-question-tv em,
+  .quiz-question-tv i,
+  .quiz-question-tv u,
+  .quiz-question-tv s,
+  .quiz-question-tv font,
+  .quiz-question-tv li,
+  .quiz-question-tv ul,
+  .quiz-question-tv ol,
+  .quiz-question-tv td,
+  .quiz-question-tv th,
+  .quiz-question-tv table,
+  .quiz-question-tv label,
+  .quiz-question-tv .rich-text-root,
+  .quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-question-text-80 p,
+  .quiz-question-text-80 span,
+  .quiz-question-text-80 div,
+  .quiz-question-text-80 strong,
+  .quiz-question-text-80 b,
+  .quiz-question-text-80 em,
+  .quiz-question-text-80 i,
+  .quiz-question-text-80 u,
+  .quiz-question-text-80 s,
+  .quiz-question-text-80 font,
+  .quiz-question-text-80 li,
+  .quiz-question-text-80 ul,
+  .quiz-question-text-80 ol,
+  .quiz-question-text-80 td,
+  .quiz-question-text-80 th,
+  .quiz-question-text-80 table,
+  .quiz-question-text-80 label,
+  .quiz-question-text-80 .rich-text-root,
+  .quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-q-compact,
+  .quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 32px !important;
+  }
+
+  .quiz-option-tv,
+  .quiz-option-text-70,
+  .quiz-option-tv p,
+  .quiz-option-tv span,
+  .quiz-option-tv div,
+  .quiz-option-tv strong,
+  .quiz-option-tv b,
+  .quiz-option-tv em,
+  .quiz-option-tv i,
+  .quiz-option-tv u,
+  .quiz-option-tv s,
+  .quiz-option-tv font,
+  .quiz-option-tv li,
+  .quiz-option-tv ul,
+  .quiz-option-tv ol,
+  .quiz-option-tv td,
+  .quiz-option-tv th,
+  .quiz-option-tv table,
+  .quiz-option-tv label,
+  .quiz-option-tv input,
+  .quiz-option-tv .rich-text-root,
+  .quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-option-text-70 p,
+  .quiz-option-text-70 span,
+  .quiz-option-text-70 div,
+  .quiz-option-text-70 strong,
+  .quiz-option-text-70 b,
+  .quiz-option-text-70 em,
+  .quiz-option-text-70 i,
+  .quiz-option-text-70 u,
+  .quiz-option-text-70 s,
+  .quiz-option-text-70 font,
+  .quiz-option-text-70 li,
+  .quiz-option-text-70 ul,
+  .quiz-option-text-70 ol,
+  .quiz-option-text-70 td,
+  .quiz-option-text-70 th,
+  .quiz-option-text-70 table,
+  .quiz-option-text-70 label,
+  .quiz-option-text-70 input,
+  .quiz-option-text-70 .rich-text-root,
+  .quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-opt-compact,
+  .quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 24px !important;
+  }
+}
+
+/* =========================================================================
+   IN ĐẬM TOÀN BỘ NỘI DUNG CÂU HỎI TRONG CHẾ ĐỘ TỪNG CÂU HỎI (CẢ BẬT & TẮT TRÌNH CHIẾU)
+   - Bắt buộc in đậm toàn bộ text câu hỏi (đoạn đơn, nhiều đoạn, Phần I, II, III)
+   - Bảo toàn nguyên vẹn công thức KaTeX, ký hiệu đặc biệt, ảnh, bảng, khối code, in nghiêng/gạch chân/màu chữ
+   - Không làm in đậm phương án trả lời, văn bản phụ, giải thích đáp án hay chế độ khác
+   ========================================================================= */
+.quiz-question-stem-bold,
+.quiz-question-stem-bold .rich-text-root,
+.quiz-question-stem-bold *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(.rich-table):not(.rich-table *):not(table):not(table *):not(svg):not(svg *) {
+  font-weight: 700 !important;
+}
+
+.quiz-question-stem-bold .code-content,
+.quiz-question-stem-bold pre.code-content,
+.quiz-question-stem-bold code.hljs,
+.quiz-question-stem-bold .katex,
+.quiz-question-stem-bold .rich-table,
+.quiz-question-stem-bold table {
+  font-weight: 400 !important;
+}
+
+/* =========================================================================
+   TRẠNG THÁI TẮT TRÌNH CHIẾU (MẶC ĐỊNH) TRONG CHẾ ĐỘ TỪNG CÂU HỎI
+   - Giữ nguyên hoàn toàn bố cục và chức năng chế độ từng câu hỏi (2x2 Phần I, từng dòng Phần II, nhập liệu Phần III, Times New Roman)
+   - Đưa cỡ chữ về kích thước bình thường phù hợp học sinh làm trực tiếp trên máy tính, laptop, tablet, điện thoại:
+       + Desktop (>= 1024px): Câu hỏi 21px (câu dài 20px) in đậm; Phương án 19px (dài 18px)
+       + Tablet (640px - <1024px): Câu hỏi 20px in đậm; Phương án 18px
+       + Mobile (< 640px): Câu hỏi 18px in đậm; Phương án 17px
+   ========================================================================= */
+.quiz-presentation-off {
+  padding: 1rem 1.25rem !important;
+}
+
+@media (min-width: 640px) {
+  .quiz-presentation-off {
+    padding: 1.25rem 1.75rem !important;
+  }
+}
+
+.quiz-presentation-off .question-content {
+  margin-bottom: 1rem !important;
+}
+
+.quiz-presentation-off [role="radiogroup"] {
+  gap: 0.75rem !important;
+}
+
+.quiz-presentation-off [role="radiogroup"] > label {
+  padding: 0.65rem 0.9rem !important;
+  min-height: 54px !important;
+  border-radius: 1rem !important;
+}
+
+.quiz-presentation-off .quiz-mc-badge {
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  font-size: 1rem !important;
+  border-radius: 0.65rem !important;
+}
+
+.quiz-presentation-off .single-question-tf-list {
+  gap: 0.65rem !important;
+}
+
+.quiz-presentation-off .single-question-tf-item {
+  padding: 0.65rem 0.9rem !important;
+  border-radius: 1rem !important;
+}
+
+.quiz-presentation-off .quiz-sa-input {
+  min-height: 48px !important;
+  height: 48px !important;
+  padding: 0.5rem 0.875rem !important;
+}
+
+.quiz-presentation-off .rich-text-root img {
+  max-height: 260px;
+}
+
+.quiz-presentation-off .quiz-question-tv,
+.quiz-presentation-off .quiz-question-text-80,
+.quiz-presentation-off .quiz-question-tv p,
+.quiz-presentation-off .quiz-question-tv span,
+.quiz-presentation-off .quiz-question-tv div,
+.quiz-presentation-off .quiz-question-tv strong,
+.quiz-presentation-off .quiz-question-tv b,
+.quiz-presentation-off .quiz-question-tv em,
+.quiz-presentation-off .quiz-question-tv i,
+.quiz-presentation-off .quiz-question-tv u,
+.quiz-presentation-off .quiz-question-tv s,
+.quiz-presentation-off .quiz-question-tv font,
+.quiz-presentation-off .quiz-question-tv li,
+.quiz-presentation-off .quiz-question-tv ul,
+.quiz-presentation-off .quiz-question-tv ol,
+.quiz-presentation-off .quiz-question-tv td,
+.quiz-presentation-off .quiz-question-tv th,
+.quiz-presentation-off .quiz-question-tv table,
+.quiz-presentation-off .quiz-question-tv label,
+.quiz-presentation-off .quiz-question-tv .rich-text-root,
+.quiz-presentation-off .quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+.quiz-presentation-off .quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *) {
+  font-size: 21px !important;
+  line-height: 1.5 !important;
+}
+
+.quiz-presentation-off .quiz-q-compact,
+.quiz-presentation-off .quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+  font-size: 20px !important;
+  line-height: 1.48 !important;
+}
+
+.quiz-presentation-off .quiz-option-tv,
+.quiz-presentation-off .quiz-option-text-70,
+.quiz-presentation-off .quiz-option-tv p,
+.quiz-presentation-off .quiz-option-tv span,
+.quiz-presentation-off .quiz-option-tv div,
+.quiz-presentation-off .quiz-option-tv strong,
+.quiz-presentation-off .quiz-option-tv b,
+.quiz-presentation-off .quiz-option-tv em,
+.quiz-presentation-off .quiz-option-tv i,
+.quiz-presentation-off .quiz-option-tv u,
+.quiz-presentation-off .quiz-option-tv s,
+.quiz-presentation-off .quiz-option-tv font,
+.quiz-presentation-off .quiz-option-tv li,
+.quiz-presentation-off .quiz-option-tv ul,
+.quiz-presentation-off .quiz-option-tv ol,
+.quiz-presentation-off .quiz-option-tv td,
+.quiz-presentation-off .quiz-option-tv th,
+.quiz-presentation-off .quiz-option-tv table,
+.quiz-presentation-off .quiz-option-tv label,
+.quiz-presentation-off .quiz-option-tv input,
+.quiz-presentation-off .quiz-option-tv .rich-text-root,
+.quiz-presentation-off .quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+.quiz-presentation-off .quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *) {
+  font-size: 19px !important;
+  line-height: 1.42 !important;
+}
+
+.quiz-presentation-off .quiz-opt-compact,
+.quiz-presentation-off .quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+  font-size: 18px !important;
+  line-height: 1.4 !important;
+}
+
+.quiz-presentation-off .quiz-helper-prompt,
+.quiz-presentation-off .quiz-helper-prompt * {
+  font-size: 16px !important;
+  line-height: 1.4 !important;
+}
+
+.quiz-presentation-off .quiz-helper-prompt {
+  font-weight: 500 !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.quiz-presentation-off .quiz-sa-meta,
+.quiz-presentation-off .quiz-sa-meta * {
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
+
+.quiz-presentation-off sub,
+.quiz-presentation-off sup {
+  font-size: 0.75em !important;
+}
+
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .quiz-presentation-off .quiz-question-tv,
+  .quiz-presentation-off .quiz-question-text-80,
+  .quiz-presentation-off .quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-q-compact,
+  .quiz-presentation-off .quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 20px !important;
+    line-height: 1.48 !important;
+  }
+
+  .quiz-presentation-off .quiz-option-tv,
+  .quiz-presentation-off .quiz-option-text-70,
+  .quiz-presentation-off .quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-opt-compact,
+  .quiz-presentation-off .quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 18px !important;
+    line-height: 1.4 !important;
+  }
+
+  .quiz-presentation-off .quiz-helper-prompt,
+  .quiz-presentation-off .quiz-helper-prompt * {
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+  }
+}
+
+@media (max-width: 639.98px) {
+  .quiz-presentation-off .quiz-question-tv,
+  .quiz-presentation-off .quiz-question-text-80,
+  .quiz-presentation-off .quiz-question-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-question-text-80 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-q-compact,
+  .quiz-presentation-off .quiz-q-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 18px !important;
+    line-height: 1.45 !important;
+  }
+
+  .quiz-presentation-off .quiz-option-tv,
+  .quiz-presentation-off .quiz-option-text-70,
+  .quiz-presentation-off .quiz-option-tv *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-option-text-70 *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *):not(.badge-content):not(.badge-content *):not(.status-pill):not(.status-pill *),
+  .quiz-presentation-off .quiz-opt-compact,
+  .quiz-presentation-off .quiz-opt-compact *:not(pre):not(pre *):not(code):not(code *):not(.hljs):not(.hljs *):not(.code-content):not(.code-content *):not(.katex):not(.katex *):not(svg):not(svg *) {
+    font-size: 17px !important;
+    line-height: 1.38 !important;
+  }
+
+  .quiz-presentation-off .quiz-helper-prompt,
+  .quiz-presentation-off .quiz-helper-prompt * {
+    font-size: 15px !important;
+    line-height: 1.38 !important;
+  }
+
+  .quiz-presentation-off .quiz-sa-meta,
+  .quiz-presentation-off .quiz-sa-meta * {
+    font-size: 13px !important;
+    line-height: 1.38 !important;
+  }
+}
+
+/* Bảo toàn tuyệt đối code monospace trong Chế độ từng câu hỏi */
+.quiz-question-tv pre,
+.quiz-question-tv code,
+.quiz-question-tv .code-content,
+.quiz-question-tv .hljs,
+.quiz-question-tv pre *,
+.quiz-question-tv code *,
+.quiz-question-tv .code-content *,
+.quiz-question-tv .hljs *,
+.quiz-question-text-80 pre,
+.quiz-question-text-80 code,
+.quiz-question-text-80 .code-content,
+.quiz-question-text-80 .hljs,
+.quiz-question-text-80 pre *,
+.quiz-question-text-80 code *,
+.quiz-question-text-80 .code-content *,
+.quiz-question-text-80 .hljs *,
+.quiz-option-tv pre,
+.quiz-option-tv code,
+.quiz-option-tv .code-content,
+.quiz-option-tv .hljs,
+.quiz-option-tv pre *,
+.quiz-option-tv code *,
+.quiz-option-tv .code-content *,
+.quiz-option-tv .hljs *,
+.quiz-option-text-70 pre,
+.quiz-option-text-70 code,
+.quiz-option-text-70 .code-content,
+.quiz-option-text-70 .hljs,
+.quiz-option-text-70 pre *,
+.quiz-option-text-70 code *,
+.quiz-option-text-70 .code-content *,
+.quiz-option-text-70 .hljs * {
+  font-family: Consolas, "Courier New", monospace !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+
+

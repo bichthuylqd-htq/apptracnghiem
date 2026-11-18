@@ -1,0 +1,1434 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { parseDocx, ParsedExam, hasRichContent, getMissingAnswerQuestions } from "@/lib/docxParser";
+import { parseTextExam } from "@/lib/textExamParser";
+import { parsePdfExam } from "@/lib/pdfParser";
+import {
+  attachQuestionScores,
+  buildScale10Scoring,
+  detectExamStructure,
+  formatScore,
+  getPartIISampleItemCount,
+  isScale10Scoring,
+  reconcileScale10Scoring,
+  ScoringConfig,
+  validateScale10Config,
+} from "@/lib/grading";
+import ScoringConfigPanel from "@/components/ScoringConfigPanel";
+import { supabase } from "@/integrations/supabase/client";
+import { Upload, Loader2, FileText, ArrowLeft, AlertTriangle, Download, Image as ImageIcon, Keyboard, CheckCircle2, Folder, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import RichText from "@/components/RichText";
+import LockModeSettings from "@/components/LockModeSettings";
+import { DEFAULT_LOCK, LockMode } from "@/hooks/useExamLock";
+import ScheduleSettings, { Schedule } from "@/components/ScheduleSettings";
+import TeamModeSettings, { DEFAULT_TEAM_CONFIG, TeamConfig, normalizeTeamConfig } from "@/components/TeamModeSettings";
+import { useAuth } from "@/hooks/useAuth";
+import { getFolderBreadcrumbLabel, getFolders, moveExamToFolder } from "@/lib/folderStorage";
+import {
+  syncExamAssignmentCodes,
+  generateUniqueNumericExamCode,
+  saveLocalAssignments,
+  getLocalAssignments,
+  ExamAssignment,
+} from "@/lib/examAssignments";
+import { ensureExamShortLink } from "@/lib/shortLinks";
+import { isUuid } from "@/lib/teacherStorage";
+import { ensureSupabaseSession, withSupabaseAuthRetry } from "@/lib/supabaseAuthSync";
+import { saveUnifiedExam } from "@/lib/allExamsStorage";
+import ExamPasswordSettings, { ExamPasswordConfig } from "@/components/ExamPasswordSettings";
+import { sha256, encryptExamPassword } from "@/lib/examSecurity";
+import MissingAnswersAlertModal, { MissingItem } from "@/components/MissingAnswersAlertModal";
+
+type Issue = { part: "I" | "II" | "III"; idx: number; id: string; reason: string };
+
+function validateExam(exam: ParsedExam): Issue[] {
+  const issues: Issue[] = [];
+  exam.partI.forEach((q, i) => {
+    if (q.options.length !== 4) {
+      issues.push({ part: "I", idx: i, id: q.id, reason: `Có ${q.options.length}/4 phương án` });
+    } else {
+      const empty = q.options.filter((o) => !hasRichContent(o.text)).map((o) => o.key);
+      if (empty.length) issues.push({ part: "I", idx: i, id: q.id, reason: `Phương án ${empty.join(", ")} không có nội dung` });
+      else if (!q.answer) issues.push({ part: "I", idx: i, id: q.id, reason: "Chưa xác định đáp án đúng" });
+    }
+  });
+  exam.partII.forEach((q, i) => {
+    if (q.items.length !== 4) {
+      issues.push({ part: "II", idx: i, id: q.id, reason: `Có ${q.items.length}/4 ý` });
+    } else {
+      const empty = q.items.filter((it) => !hasRichContent(it.text)).map((it) => it.key);
+      if (empty.length) issues.push({ part: "II", idx: i, id: q.id, reason: `Ý ${empty.join(", ")} không có nội dung` });
+      else {
+        const missing = q.items.filter((it) => it.correct === null || it.correct === undefined);
+        if (missing.length > 0) {
+          issues.push({ part: "II", idx: i, id: q.id, reason: `Ý ${missing.map((it) => it.key).join(", ")} chưa xác định Đúng/Sai` });
+        }
+      }
+    }
+  });
+  exam.partIII.forEach((q, i) => {
+    if (!q.answer || !q.answer.trim()) issues.push({ part: "III", idx: i, id: q.id, reason: "Chưa có đáp án ngắn" });
+  });
+  return issues;
+}
+
+export default function Teacher() {
+  const { user, profile, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const [targetFolderId] = useState<string | null>(() => {
+    return searchParams.get("folder") || (location.state as any)?.folderId || null;
+  });
+  const [targetFolderName, setTargetFolderName] = useState<string | null>(() => {
+    return (location.state as any)?.folderName || null;
+  });
+  const [targetFolderPath, setTargetFolderPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (targetFolderId) {
+      getFolders(user?.id, isAdmin).then((folders) => {
+        const found = folders.find((f) => f.id === targetFolderId);
+        if (found) {
+          setTargetFolderName((prev) => prev || found.name);
+          const fullPath = getFolderBreadcrumbLabel(folders, targetFolderId, " > ");
+          if (fullPath) setTargetFolderPath(fullPath);
+        }
+      });
+    }
+  }, [targetFolderId, user, isAdmin]);
+
+  const docxInputRef = useRef<HTMLInputElement | null>(null);
+  const docxReadSeq = useRef(0);
+  const [parsing, setParsing] = useState(false);
+  const [exam, setExam] = useState<ParsedExam | null>(null);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
+  const [title, setTitle] = useState("");
+  const [duration, setDuration] = useState(45);
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [shuffleQ, setShuffleQ] = useState({ p1: false, p2: false, p3: false });
+  const [shuffleO, setShuffleO] = useState({ p1: false, p2: false, p3: false });
+  const [scoring, setScoring] = useState<ScoringConfig>(() =>
+    buildScale10Scoring({ partI: [], partII: [], partIII: [] })
+  );
+  const [allowReview, setAllowReview] = useState(false);
+  const [enableMinCorrect, setEnableMinCorrect] = useState<boolean>(false);
+  const [minCorrectPercentage, setMinCorrectPercentage] = useState<number>(70);
+  const [displayMode, setDisplayMode] = useState<"standard" | "quizizz" | "team">("standard");
+  const [teamConfig, setTeamConfig] = useState<TeamConfig>(DEFAULT_TEAM_CONFIG);
+  const [instantFeedback, setInstantFeedback] = useState(false);
+  const [allowBack, setAllowBack] = useState(true);
+  const [lockMode, setLockMode] = useState<LockMode>(DEFAULT_LOCK);
+  const [schedule, setSchedule] = useState<Schedule>({ open_at: null, close_at: null, auto_submit_on_close: true });
+  const [passwordConfig, setPasswordConfig] = useState<ExamPasswordConfig>({ requirePassword: false, password: "" });
+  const [saving, setSaving] = useState(false);
+  const pendingCreatedExamRef = useRef<{ id: string; code: string } | null>(null);
+
+  const examCounts = useMemo(() => detectExamStructure(exam), [exam]);
+  const itemCountP2 = useMemo(() => getPartIISampleItemCount(exam), [exam]);
+  const scoringValidation = useMemo(() => {
+    if (!isScale10Scoring(scoring)) return { valid: true, total: 10, diff: 0, message: null };
+    return validateScale10Config(scoring, examCounts);
+  }, [scoring, examCounts]);
+
+  useEffect(() => {
+    if (!exam) return;
+    setScoring((prev) => reconcileScale10Scoring(exam, prev));
+  }, [examCounts.p1, examCounts.p2, examCounts.p3, itemCountP2]);
+
+  const issues = useMemo(() => (exam ? validateExam(exam) : []), [exam]);
+  const missingQuestions = useMemo(() => (exam ? getMissingAnswerQuestions(exam) : []), [exam]);
+  const issueKey = (part: "I" | "II" | "III", idx: number) => `${part}-${idx}`;
+  const issueSet = useMemo(() => new Set(issues.map((i) => issueKey(i.part, i.idx))), [issues]);
+
+  const handleDeleteQuestion = (part: "I" | "II" | "III", qId: string) => {
+    setExam((prev) => {
+      if (!prev) return prev;
+      if (part === "I") return { ...prev, partI: prev.partI.filter((q) => q.id !== qId) };
+      if (part === "II") return { ...prev, partII: prev.partII.filter((q) => q.id !== qId) };
+      return { ...prev, partIII: prev.partIII.filter((q) => q.id !== qId) };
+    });
+    toast.success("Đã xóa câu hỏi và tự động cập nhật lại phân bổ điểm");
+  };
+
+  const handleUpdateMCAnswer = (qId: string, ans: "A" | "B" | "C" | "D") => {
+    setExam((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        partI: prev.partI.map((q) => (q.id === qId ? { ...q, answer: ans } : q)),
+      };
+    });
+    toast.success(`Đã cập nhật đáp án cho câu hỏi: ${ans}`);
+  };
+
+  const handleUpdateTFItem = (qId: string, itemKey: "a" | "b" | "c" | "d", correct: boolean) => {
+    setExam((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        partII: prev.partII.map((q) => {
+          if (q.id !== qId) return q;
+          return {
+            ...q,
+            items: q.items.map((it) => (it.key === itemKey ? { ...it, correct } : it)),
+          };
+        }),
+      };
+    });
+    toast.success(`Đã cập nhật ý ${itemKey.toUpperCase()}: ${correct ? "Đúng" : "Sai"}`);
+  };
+
+  const handleUpdateSAAnswer = (qId: string, ans: string) => {
+    setExam((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        partIII: prev.partIII.map((q) => (q.id === qId ? { ...q, answer: ans } : q)),
+      };
+    });
+  };
+
+  const imageStats = useMemo(() => {
+    const count = (s?: string | null) => ((s || "").match(/\u27E6IMG:/g) || []).length;
+    let inQuestions = 0;
+    let inOptions = 0;
+    if (exam) {
+      exam.partI.forEach((q) => {
+        inQuestions += count(q.text);
+        q.options.forEach((o) => (inOptions += count(o.text)));
+      });
+      exam.partII.forEach((q) => {
+        inQuestions += count(q.text);
+        q.items.forEach((it) => (inOptions += count(it.text)));
+      });
+      exam.partIII.forEach((q) => {
+        inQuestions += count(q.text) + count(q.answer);
+      });
+    }
+    return { inQuestions, inOptions, total: inQuestions + inOptions };
+  }, [exam]);
+
+  const [manualText, setManualText] = useState("");
+  const [ocring, setOcring] = useState(false);
+  const [missingModalOpen, setMissingModalOpen] = useState(false);
+  const [modalMissingList, setModalMissingList] = useState<MissingItem[]>([]);
+
+  const applyParsed = (parsed: ParsedExam, name: string, file: File | null) => {
+    setExam(parsed);
+    setScoring((prev) => reconcileScale10Scoring(parsed, prev));
+    setOriginalFile(file);
+    setTitle(name);
+    const total = parsed.partI.length + parsed.partII.length + parsed.partIII.length;
+    if (total === 0) {
+      toast.warning("Không phát hiện câu hỏi nào. Kiểm tra định dạng.");
+    } else {
+      if (parsed.answerWarnings && parsed.answerWarnings.length > 0) {
+        toast.warning(parsed.answerWarnings[0], { duration: 7000 });
+      }
+      const missing = getMissingAnswerQuestions(parsed);
+      if (missing.length > 0) {
+        // Cảnh báo dạng hộp thoại ở giữa màn hình, không tự động biến mất, bắt buộc bấm OK
+        setModalMissingList(missing);
+        setMissingModalOpen(true);
+      } else if (!parsed.answerWarnings?.length) {
+        toast.success(`Đã tách ${parsed.partI.length} câu Phần I, ${parsed.partII.length} câu Phần II, ${parsed.partIII.length} câu Phần III`);
+      }
+    }
+  };
+
+  const onDocxFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const f = input.files?.[0];
+    if (!f) { input.value = ""; return; }
+    const readId = ++docxReadSeq.current;
+    setExam(null);
+    setOriginalFile(null);
+    setTitle("");
+    if (!f.name.toLowerCase().endsWith(".docx")) {
+      toast.error("Vui lòng chọn file .docx");
+      input.value = "";
+      return;
+    }
+    setParsing(true);
+    try {
+      const parsed = await parseDocx(f);
+      if (readId !== docxReadSeq.current) return;
+      applyParsed(parsed, f.name.replace(/\.docx$/i, ""), f);
+    } catch (err: any) {
+      if (readId === docxReadSeq.current) toast.error("Lỗi đọc file: " + err.message);
+    } finally {
+      if (readId === docxReadSeq.current) setParsing(false);
+      if (docxInputRef.current) docxInputRef.current.value = "";
+      input.value = "";
+    }
+  };
+
+  const onPdfFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".pdf")) { toast.error("Vui lòng chọn file .pdf"); return; }
+    setParsing(true);
+    try {
+      const parsed = await parsePdfExam(f);
+      applyParsed(parsed, f.name.replace(/\.pdf$/i, ""), f);
+    } catch (err: any) { toast.error("Lỗi đọc PDF: " + err.message); }
+    finally { setParsing(false); }
+  };
+
+  const onImageFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fs = Array.from(e.target.files || []);
+    if (!fs.length) return;
+    setOcring(true);
+    try {
+      const dataUrls = await Promise.all(fs.map((f) => new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result as string);
+        r.onerror = () => rej(r.error);
+        r.readAsDataURL(f);
+      })));
+      const { data, error } = await supabase.functions.invoke("ocr-exam", { body: { images: dataUrls } });
+      if (error) throw error;
+      const text = (data as any)?.text || "";
+      if (!text.trim()) throw new Error("AI không trả về nội dung");
+      setManualText(text);
+      const parsed = parseTextExam(text);
+      applyParsed(parsed, fs[0].name.replace(/\.[^.]+$/, ""), null);
+    } catch (err: any) {
+      toast.error("Lỗi OCR: " + (err.message || err));
+    } finally { setOcring(false); }
+  };
+
+  const onManualParse = () => {
+    if (!manualText.trim()) { toast.error("Vui lòng nhập nội dung đề"); return; }
+    try {
+      const parsed = parseTextExam(manualText);
+      applyParsed(parsed, title || "De-thi-nhap-tay", null);
+    } catch (err: any) { toast.error("Lỗi: " + err.message); }
+  };
+
+  const onCreate = async () => {
+    if (!exam || !title) return;
+    const currentUser = user;
+    if (!currentUser) { toast.error("Bạn cần đăng nhập"); navigate("/auth"); return; }
+
+    const missing = getMissingAnswerQuestions(exam);
+    if (missing.length > 0) {
+      toast.error(
+        `⚠️ Không thể tiếp tục: Đề vẫn còn ${missing.length} câu hỏi chưa có đáp án. Vui lòng bổ sung đáp án cho tất cả các câu trước khi tạo hoặc giao đề.`
+      );
+      const firstMissingId = missing[0]?.id;
+      const el = document.getElementById(`q-preview-${firstMissingId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    if (issues.length > 0) {
+      toast.error(`⚠️ Không thể tiếp tục: Đề còn ${issues.length} lỗi định dạng cần xử lý trước khi tạo bài thi.`);
+      return;
+    }
+
+    if (passwordConfig.requirePassword && !passwordConfig.password.trim()) {
+      toast.error("Vui lòng nhập mật khẩu bài thi trước khi lưu!");
+      return;
+    }
+
+    if (isScale10Scoring(scoring)) {
+      const check = validateScale10Config(scoring, examCounts);
+      if (!check.valid) {
+        toast.error(check.message || "Cấu hình thang điểm 10 chưa hợp lệ!");
+        return;
+      }
+    }
+
+    setSaving(true);
+
+    const finalScoring: ScoringConfig = isScale10Scoring(scoring)
+      ? {
+          ...reconcileScale10Scoring(exam, scoring),
+          enable_min_correct_percentage: displayMode === "standard" ? enableMinCorrect : false,
+          min_correct_percentage_for_review: displayMode === "standard" ? minCorrectPercentage : 0,
+        }
+      : {
+          ...(scoring as any),
+          enable_min_correct_percentage: displayMode === "standard" ? enableMinCorrect : false,
+          min_correct_percentage_for_review: displayMode === "standard" ? minCorrectPercentage : 0,
+        };
+    const examToSave = attachQuestionScores(exam, finalScoring);
+
+    // Ensure active Supabase Auth session for PostgreSQL RLS & table permissions
+    let activeUserId = await ensureSupabaseSession(currentUser as any);
+    const { data: authUserData } = await supabase.auth.getUser();
+    if (authUserData?.user?.id) {
+      activeUserId = authUserData.user.id;
+    }
+
+    let original_file_url: string | null = null;
+    let original_file_name: string | null = null;
+    let original_file_path: string | null = null;
+    if (originalFile) {
+      const folder = (activeUserId || currentUser.id || "teacher").replace(/[^\w.\-]+/g, "_");
+      const path = `${folder}/${Date.now()}-${originalFile.name.replace(/[^\w.\-]+/g, "_")}`;
+      const up = await supabase.storage.from("exam-files").upload(path, originalFile, {
+        contentType: originalFile.type || "application/octet-stream",
+        upsert: false,
+      });
+      if (up.error) {
+        toast.error("Lỗi tải file gốc: " + up.error.message);
+      } else {
+        original_file_path = path;
+        original_file_name = originalFile.name;
+      }
+    }
+
+    // Hash and encrypt exam password if enabled
+    const passHash = passwordConfig.requirePassword && passwordConfig.password.trim()
+      ? await sha256(passwordConfig.password.trim())
+      : "";
+    const encPass = passwordConfig.requirePassword && passwordConfig.password.trim()
+      ? encryptExamPassword(passwordConfig.password.trim(), "default")
+      : "";
+
+    // BƯỚC 1, 2, 3: Lưu đề thi thành công vào Supabase và nhận UUID chính thức
+    // Nếu lần lưu trước đã tạo dòng exam trên Supabase nhưng sync mã bị lỗi mạng, tái sử dụng ID & mã cũ để không tạo trùng đề
+    const pendingDraft = pendingCreatedExamRef.current;
+    const examCode = pendingDraft?.code || await generateUniqueNumericExamCode();
+    const finalTeamConfig = {
+      ...(teamConfig || {}),
+      primary_code: examCode,
+    };
+
+    const { data, error } = await withSupabaseAuthRetry<{ id: string }>(async (uid) => {
+      // Prioritize the actual authenticated user id in current Supabase JWT to guarantee RLS with check
+      const currentAuthUser = (await supabase.auth.getUser()).data.user;
+      const verifiedUid = currentAuthUser?.id || (isUuid(uid) ? uid : (isUuid(currentUser?.id) ? currentUser.id : null));
+
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[Exam Create Safe Debug]", {
+          authenticatedUserId: currentAuthUser?.id || null,
+          role: currentUser?.role || "teacher",
+          targetCreatedBy: verifiedUid,
+          title,
+        });
+      }
+
+      const insertPayload: any = {
+        title,
+        questions: examToSave as any,
+        duration_minutes: duration,
+        max_attempts: maxAttempts,
+        shuffle_questions: shuffleQ.p1 || shuffleQ.p2 || shuffleQ.p3,
+        shuffle_options: shuffleO.p1 || shuffleO.p2 || shuffleO.p3,
+        shuffle_q_p1: shuffleQ.p1, shuffle_q_p2: shuffleQ.p2, shuffle_q_p3: shuffleQ.p3,
+        shuffle_o_p1: shuffleO.p1, shuffle_o_p2: shuffleO.p2, shuffle_o_p3: shuffleO.p3,
+        scoring: finalScoring as any,
+        allow_review: allowReview,
+        display_mode: displayMode,
+        instant_feedback: (displayMode === "standard" || displayMode === "quizizz") ? instantFeedback : false,
+        team_config: {
+          ...(finalTeamConfig || {}),
+          allow_back: displayMode === "quizizz" ? allowBack : true,
+        } as any,
+        lock_mode: {
+          ...(lockMode || {}),
+          allow_back: displayMode === "quizizz" ? allowBack : true,
+          enable_min_correct_percentage: displayMode === "standard" ? enableMinCorrect : false,
+          min_correct_percentage_for_review: displayMode === "standard" ? minCorrectPercentage : 0,
+          has_password: passwordConfig.requirePassword,
+          require_password: passwordConfig.requirePassword,
+          password_hash: passHash,
+          encrypted_password: encPass,
+        } as any,
+        open_at: schedule.open_at,
+        close_at: schedule.close_at,
+        auto_submit_on_close: schedule.auto_submit_on_close,
+        original_file_url,
+        original_file_name,
+        original_file_path,
+        created_by: verifiedUid,
+        teacher_name: profile?.full_name || currentUser?.name || "Giáo viên",
+        school_name: profile?.school_name || currentUser?.school || "",
+        subject_name: profile?.subject_name || currentUser?.subject || "",
+      };
+
+      if (targetFolderId) {
+        insertPayload.folder_id = targetFolderId;
+      }
+
+      if (pendingDraft?.id) {
+        const updPayload = { ...insertPayload };
+        delete updPayload.created_by;
+        let updRes = await supabase.from("exams").update(updPayload).eq("id", pendingDraft.id).select("id").single();
+        if (
+          updRes.error &&
+          (updRes.error.code === "42703" || updRes.error.code === "PGRST204" || updRes.error.message?.includes("folder_id"))
+        ) {
+          delete updPayload.folder_id;
+          updRes = await supabase.from("exams").update(updPayload).eq("id", pendingDraft.id).select("id").single();
+        }
+        if (!updRes.error && updRes.data?.id) {
+          return updRes;
+        }
+      }
+
+      let res = await supabase.from("exams").insert(insertPayload).select("id").single();
+      // If error is code 42703/PGRST204 (folder_id column not created yet in remote Supabase), retry safely without folder_id in payload
+      if (
+        res.error &&
+        (res.error.code === "42703" || res.error.code === "PGRST204" || res.error.message?.includes("folder_id"))
+      ) {
+        delete insertPayload.folder_id;
+        res = await supabase.from("exams").insert(insertPayload).select("id").single();
+      }
+      return res;
+    }, currentUser as any);
+
+    if (error || !data?.id) {
+      setSaving(false);
+      console.error("[Exam Create Error Safe Debug]", {
+        code: error?.code,
+        message: error?.message,
+      });
+      toast.error("Lỗi lưu đề thi vào hệ thống: " + (error?.message || "Không thể tạo đề thi"));
+      return;
+    }
+
+    pendingCreatedExamRef.current = { id: data.id, code: examCode };
+
+    // BƯỚC 4, 5, 6: Lưu mã bài thi vào database và kiểm tra việc lưu mã thành công
+    const syncRes = await syncExamAssignmentCodes({
+      id: data.id,
+      title,
+      duration_minutes: duration,
+      teacher_name: profile?.full_name || "Giáo viên",
+      school_name: profile?.school_name || "",
+      subject_name: profile?.subject_name || "",
+      open_at: schedule.open_at,
+      close_at: schedule.close_at,
+      team_config: finalTeamConfig as any,
+    });
+
+    if (!syncRes.success) {
+      setSaving(false);
+      toast.error("Lỗi đồng bộ mã bài thi lên máy chủ: " + (syncRes.error || "Không thể lưu mã bài thi"));
+      return;
+    }
+
+    const effectiveExamCode = syncRes.primaryCode || examCode;
+    const confirmedTeamConfig = {
+      ...(finalTeamConfig || {}),
+      primary_code: effectiveExamCode,
+    };
+
+    // BƯỚC 7, 8, 9: Sau khi dữ liệu đã tồn tại trên server mới lưu bộ nhớ đệm và chuyển sang trang chia sẻ
+    const createdExamPayload = {
+      id: data.id,
+      title,
+      duration_minutes: duration,
+      teacher_name: profile?.full_name || "Giáo viên",
+      school_name: profile?.school_name || "",
+      subject_name: profile?.subject_name || "",
+      open_at: schedule.open_at,
+      close_at: schedule.close_at,
+      display_mode: displayMode,
+      created_by: isUuid(currentUser?.id) ? currentUser?.id : null,
+      team_config: confirmedTeamConfig as any,
+    };
+
+    let primaryShortCode: string | undefined;
+    try {
+      const shortLinkRes = await ensureExamShortLink({ exam: createdExamPayload });
+      primaryShortCode = shortLinkRes?.shortCode;
+    } catch (slErr: any) {
+      toast.warning(slErr?.message || "Đề thi đã tạo nhưng link ngắn sẽ được đồng bộ lại ở trang chia sẻ.");
+    }
+
+    const primaryAssign: ExamAssignment = {
+      id: `primary_${data.id}`,
+      examId: data.id,
+      code: effectiveExamCode,
+      shortCode: primaryShortCode,
+      className: "Chung",
+      title,
+      teacherName: profile?.full_name || "Giáo viên",
+      schoolName: profile?.school_name || "",
+      subjectName: profile?.subject_name || "",
+      durationMinutes: duration,
+      openAt: schedule.open_at,
+      closeAt: schedule.close_at,
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser?.id,
+    };
+    saveLocalAssignments([primaryAssign, ...getLocalAssignments().filter((a) => a.examId !== data.id)]);
+
+    saveUnifiedExam({
+      id: data.id,
+      title,
+      questions: examToSave as any,
+      duration_minutes: duration,
+      created_at: new Date().toISOString(),
+      created_by: isUuid(currentUser?.id) ? currentUser?.id : null,
+      teacher_name: profile?.full_name || "Giáo viên",
+      school_name: profile?.school_name || "",
+      subject_name: profile?.subject_name || "",
+      manual_closed: false,
+      display_mode: displayMode,
+      allow_back: displayMode === "quizizz" ? allowBack : true,
+      instant_feedback: (displayMode === "standard" || displayMode === "quizizz") ? instantFeedback : false,
+      scoring: finalScoring as any,
+      allow_review: allowReview,
+      open_at: schedule.open_at,
+      close_at: schedule.close_at,
+      team_config: confirmedTeamConfig as any,
+      folder_id: targetFolderId || null,
+      lock_mode: {
+        ...(lockMode || {}),
+        allow_back: displayMode === "quizizz" ? allowBack : true,
+        enable_min_correct_percentage: displayMode === "standard" ? enableMinCorrect : false,
+        min_correct_percentage_for_review: displayMode === "standard" ? minCorrectPercentage : 0,
+        has_password: passwordConfig.requirePassword,
+        require_password: passwordConfig.requirePassword,
+        password_hash: passHash,
+        encrypted_password: encPass,
+      } as any,
+    });
+
+    pendingCreatedExamRef.current = null;
+
+    if (targetFolderId) {
+      await moveExamToFolder(data.id, targetFolderId);
+    }
+
+    setSaving(false);
+    if (targetFolderName) {
+      toast.success(`Đã tạo đề thi thành công trong thư mục "${targetFolderName}"!`);
+    } else {
+      toast.success("Tạo đề thi và lưu mã bài thi thành công!");
+    }
+    navigate(`/exam/${data.id}/share${targetFolderId ? `?folder=${targetFolderId}` : ""}`);
+  };
+
+
+  return (
+    <div className="min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden bg-gradient-soft">
+      <header className="border-b bg-background/80 backdrop-blur sticky top-0 z-10 shrink-0">
+        <div className="container flex items-center justify-between py-4">
+          <Link
+            to={targetFolderId ? `/?folder=${targetFolderId}` : "/"}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground font-medium"
+          >
+            <ArrowLeft className="size-4" /> {targetFolderName ? `Trở về ${targetFolderName}` : "Trang chủ"}
+          </Link>
+          <div className="font-semibold">Tạo bài thi mới</div>
+          <Button asChild variant="outline" size="sm">
+            <a href="/de-mau.docx" download><Download className="size-4 mr-1" /> Tải mẫu</a>
+          </Button>
+        </div>
+      </header>
+
+      <main className="container max-w-[1440px] py-6 sm:py-8 lg:py-6 space-y-6 lg:space-y-4 lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden">
+        {/* Banner hiển thị ngữ cảnh thư mục đang mở */}
+        {(targetFolderPath || targetFolderName) && (
+          <div className="shrink-0 flex items-center justify-between p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/30 text-foreground animate-slide-up shadow-xs">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="size-9 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white grid place-items-center shadow-xs shrink-0">
+                <Folder className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold text-teal-700 dark:text-teal-400 uppercase tracking-wider">
+                  Đang tạo đề cho thư mục:
+                </div>
+                <div className="text-base font-extrabold text-foreground truncate" title={targetFolderPath || targetFolderName || ""}>
+                  {targetFolderPath || targetFolderName}
+                </div>
+              </div>
+            </div>
+            <span className="text-xs font-semibold text-teal-800 dark:text-teal-300 px-2.5 py-1 rounded-full bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 shrink-0">
+              Tự động lưu vào thư mục này
+            </span>
+          </div>
+        )}
+
+        <div
+          data-testid="teacher-two-column-layout"
+          className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-6 lg:flex-1 lg:min-h-0 lg:items-stretch"
+        >
+          {/* CỘT BÊN TRÁI (40%): Tải bài thi + Cài đặt bài thi + Các nút thao tác */}
+          <div
+            data-testid="teacher-left-column"
+            className="min-w-0 space-y-6 lg:h-full lg:overflow-y-auto lg:overflow-x-hidden lg:pr-2"
+          >
+        <Card className="p-4 sm:p-5 xl:p-6">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="font-semibold text-lg flex items-center gap-2"><Upload className="size-5 text-primary shrink-0" /> Tải đề thi</h2>
+            <Button asChild variant="link" size="sm" className="text-primary px-0 sm:px-3">
+              <a href="/de-mau.docx" download><Download className="size-4 mr-1" /> Tải file mẫu</a>
+            </Button>
+          </div>
+
+          <Tabs defaultValue="docx">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="docx" className="px-1 sm:px-2 text-[11px] xl:text-sm min-w-0"><FileText className="size-3.5 xl:size-4 mr-1 shrink-0" /> Word</TabsTrigger>
+              <TabsTrigger value="pdf" className="px-1 sm:px-2 text-[11px] xl:text-sm min-w-0"><FileText className="size-3.5 xl:size-4 mr-1 shrink-0" /> PDF</TabsTrigger>
+              <TabsTrigger value="ocr" className="px-1 sm:px-2 text-[11px] xl:text-sm min-w-0"><ImageIcon className="size-3.5 xl:size-4 mr-1 shrink-0" /> Ảnh (OCR)</TabsTrigger>
+              <TabsTrigger value="manual" className="px-1 sm:px-2 text-[11px] xl:text-sm min-w-0"><Keyboard className="size-3.5 xl:size-4 mr-1 shrink-0" /> Nhập tay</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="docx">
+              <label className="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-muted/50 transition">
+                <input ref={docxInputRef} type="file" accept=".docx" className="hidden" onChange={onDocxFile} disabled={parsing} />
+                {parsing ? (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><Loader2 className="size-8 animate-spin" /> Đang phân tích…</div>
+                ) : exam && originalFile?.name.endsWith(".docx") ? (
+                  <div className="flex flex-col items-center gap-2"><FileText className="size-8 text-primary" /><div className="font-medium">Đã tải: {title}.docx</div><div className="text-sm text-muted-foreground">I:{exam.partI.length} • II:{exam.partII.length} • III:{exam.partIII.length}</div></div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><Upload className="size-8" /><div>Chọn file .docx</div><div className="text-xs">Đáp án đúng: <span className="text-destructive">màu đỏ</span> hoặc <u>gạch chân</u>. Công thức: dùng MathType / Equation hoặc <code>$x^2$</code>.</div></div>
+                )}
+              </label>
+            </TabsContent>
+
+            <TabsContent value="pdf">
+              <label className="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-muted/50 transition">
+                <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={onPdfFile} disabled={parsing} />
+                {parsing ? (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><Loader2 className="size-8 animate-spin" /> Đang đọc PDF…</div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><Upload className="size-8" /><div>Chọn file .pdf (chỉ PDF có chữ thật, không phải ảnh scan)</div><div className="text-xs">Đáp án đúng đánh dấu bằng dấu <code>*</code> trước phương án, hoặc dòng "Đáp án: B".</div></div>
+                )}
+              </label>
+            </TabsContent>
+
+            <TabsContent value="ocr">
+              <label className="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-muted/50 transition">
+                <input type="file" accept="image/*" multiple className="hidden" onChange={onImageFiles} disabled={ocring} />
+                {ocring ? (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><Loader2 className="size-8 animate-spin" /> Đang nhận dạng (OCR + LaTeX)… có thể mất 20–60 giây.</div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground"><ImageIcon className="size-8" /><div>Chọn 1 hoặc nhiều ảnh (chụp/scan)</div><div className="text-xs">AI sẽ nhận dạng đề và công thức toán dưới dạng LaTeX (<code>$\frac{"{a}"}{"{b}"}$</code>). Sau OCR có thể chỉnh sửa ở tab "Nhập tay".</div></div>
+                )}
+              </label>
+            </TabsContent>
+
+            <TabsContent value="manual" className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                Dùng <code>$...$</code> cho công thức inline, <code>$$...$$</code> cho block. Đánh dấu đáp án đúng phần I/II bằng dấu <code>*</code> trước chữ cái (vd <code>*A. ...</code>); phần III dùng <code>Đáp án: ...</code>.
+              </div>
+              <Textarea
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                rows={14}
+                className="font-mono text-sm"
+                placeholder={`PHẦN I\nCâu 1: Tính $\\int_0^1 x^2\\,dx$ bằng?\nA. 0\nB. 1\n*C. $\\frac{1}{3}$\nD. $\\frac{1}{2}$\n\nPHẦN III\nCâu 1: Nghiệm dương của $x^2 - 4 = 0$?\nĐáp án: 2`}
+              />
+              <Button onClick={onManualParse} variant="outline" size="sm">Phân tích</Button>
+            </TabsContent>
+          </Tabs>
+        </Card>
+
+        {exam && (
+          <Card className="p-4 sm:p-5 xl:p-6 space-y-5">
+            <h2 className="font-semibold text-lg">Cài đặt bài thi</h2>
+
+            <div>
+              <Label>Tên đề thi</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Thời gian (phút)</Label>
+                <Input type="number" min={1} value={duration} onChange={(e) => setDuration(+e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label>Số lần được làm</Label>
+                <Input type="number" min={1} value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} className="mt-1" />
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-xl border p-4 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-foreground">Cấu hình xáo đề theo từng phần</div>
+                <div className="text-xs text-muted-foreground">Độc lập cho từng phần</div>
+              </div>
+
+              {/* PHẦN I */}
+              <div className="rounded-lg border bg-background p-3 space-y-2">
+                <div className="text-xs font-bold text-primary">PHẦN I – Trắc nghiệm nhiều lựa chọn</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between rounded-md border p-2 bg-muted/30">
+                    <Label htmlFor="sq-p1" className="text-xs font-medium cursor-pointer">Xáo thứ tự câu hỏi</Label>
+                    <Switch id="sq-p1" checked={shuffleQ.p1} onCheckedChange={(v) => setShuffleQ({ ...shuffleQ, p1: v })} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border p-2 bg-muted/30">
+                    <Label htmlFor="so-p1" className="text-xs font-medium cursor-pointer">Xáo thứ tự phương án A/B/C/D</Label>
+                    <Switch id="so-p1" checked={shuffleO.p1} onCheckedChange={(v) => setShuffleO({ ...shuffleO, p1: v })} />
+                  </div>
+                </div>
+              </div>
+
+              {/* PHẦN II */}
+              <div className="rounded-lg border bg-background p-3 space-y-2">
+                <div className="text-xs font-bold text-primary">PHẦN II – Đúng/Sai</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between rounded-md border p-2 bg-muted/30">
+                    <Label htmlFor="sq-p2" className="text-xs font-medium cursor-pointer">Xáo thứ tự câu hỏi</Label>
+                    <Switch id="sq-p2" checked={shuffleQ.p2} onCheckedChange={(v) => setShuffleQ({ ...shuffleQ, p2: v })} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border p-2 bg-muted/30">
+                    <Label htmlFor="so-p2" className="text-xs font-medium cursor-pointer">Xáo thứ tự phương án a/b/c/d</Label>
+                    <Switch id="so-p2" checked={shuffleO.p2} onCheckedChange={(v) => setShuffleO({ ...shuffleO, p2: v })} />
+                  </div>
+                </div>
+              </div>
+
+              {/* PHẦN III */}
+              <div className="rounded-lg border bg-background p-3 space-y-2">
+                <div className="text-xs font-bold text-primary">PHẦN III – Trả lời ngắn</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between rounded-md border p-2 bg-muted/30">
+                    <Label htmlFor="sq-p3" className="text-xs font-medium cursor-pointer">Xáo thứ tự câu hỏi</Label>
+                    <Switch id="sq-p3" checked={shuffleQ.p3} onCheckedChange={(v) => setShuffleQ({ ...shuffleQ, p3: v })} />
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground italic p-2">
+                    (Không có phương án để xáo)
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <ScoringConfigPanel
+              counts={examCounts}
+              itemCountP2={itemCountP2}
+              scoring={scoring}
+              onChange={setScoring}
+            />
+
+            <div className="rounded-lg border p-4 space-y-2">
+              <Label className="text-sm font-medium">🖥️ Hình thức hiển thị bài kiểm tra</Label>
+              <Select value={displayMode} onValueChange={(v) => setDisplayMode(v as "standard" | "quizizz" | "team")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">Chế độ tiêu chuẩn (Hiển thị toàn bộ câu hỏi)</SelectItem>
+                  <SelectItem value="quizizz">Chế độ từng câu hỏi (Quizizz Mode)</SelectItem>
+                  <SelectItem value="team">Chế độ Đội/Nhóm (thi đấu theo nhóm)</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground">
+                Tiêu chuẩn: học sinh thấy toàn bộ câu, được phép quay lại sửa.
+                Quizizz: mỗi lần 1 câu, tự lưu tiến độ.
+              </div>
+
+              {displayMode === "quizizz" && (
+                <div className="flex items-center justify-between rounded-xl border-2 p-3.5 mt-3 bg-card shadow-xs">
+                  <div className="pr-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Label htmlFor="allow-back" className="text-sm font-bold text-foreground cursor-pointer">
+                        🔄 Cho phép học sinh quay lại câu hỏi trước
+                      </Label>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-black tracking-wide border ${
+                        allowBack
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                          : "bg-muted text-muted-foreground border-border"
+                      }`}>
+                        {allowBack ? "BẬT" : "TẮT"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {allowBack
+                        ? "Học sinh có thể bấm quay lại câu trước để xem lại hoặc chỉnh sửa câu trả lời đã chọn."
+                        : "Học sinh chỉ được làm bài một chiều từ đầu đến cuối, không thể quay lại câu hỏi trước."}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-muted-foreground hidden sm:inline">
+                      {allowBack ? "BẬT" : "TẮT"}
+                    </span>
+                    <Switch id="allow-back" checked={allowBack} onCheckedChange={setAllowBack} />
+                  </div>
+                </div>
+              )}
+
+              {displayMode === "team" && (
+              <div className="mt-3">
+                <TeamModeSettings value={teamConfig} onChange={setTeamConfig} examId="new-exam" />
+              </div>
+            )}
+
+            {(displayMode === "standard" || displayMode === "quizizz") && (
+                <div className="flex items-center justify-between rounded-xl border-2 p-3.5 mt-3 bg-card shadow-xs">
+                  <div className="pr-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Label htmlFor="instant-fb" className="text-sm font-bold text-foreground cursor-pointer">
+                        💬 Hiển thị đáp án và giải thích ngay sau khi học sinh trả lời
+                      </Label>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-black tracking-wide border ${
+                        instantFeedback
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                          : "bg-muted text-muted-foreground border-border"
+                      }`}>
+                        {instantFeedback ? "BẬT" : "TẮT"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Khi bật, học sinh sẽ được xem kết quả đúng/sai, đáp án đúng và lời giải ngay sau khi trả lời từng câu hỏi (hoạt động cho cả trắc nghiệm 4 lựa chọn, Đúng/Sai và trả lời ngắn).
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-muted-foreground hidden sm:inline">
+                      {instantFeedback ? "BẬT" : "TẮT"}
+                    </span>
+                    <Switch id="instant-fb" checked={instantFeedback} onCheckedChange={setInstantFeedback} />
+                  </div>
+                </div>
+              )}
+
+              {displayMode === "standard" && (
+                <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-4 space-y-3 mt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-1 pr-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Label htmlFor="create-toggle-min-correct" className="text-sm font-bold text-foreground flex items-center gap-1.5 cursor-pointer">
+                          <span>🎯</span>
+                          <span>Áp dụng tỷ lệ trả lời đúng tối thiểu để xem đáp án và lời giải</span>
+                        </Label>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                          enableMinCorrect
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-muted text-muted-foreground border-border"
+                        }`}>
+                          {enableMinCorrect ? "BẬT" : "TẮT"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        {enableMinCorrect
+                          ? "BẬT: Áp dụng điều kiện tỷ lệ trả lời đúng tối thiểu do giáo viên thiết lập bên dưới."
+                          : "TẮT: Không áp dụng điều kiện tỷ lệ đúng tối thiểu; học sinh được xét quyền xem đáp án và lời giải theo cơ chế hiện có."}
+                      </div>
+                    </div>
+                    <Switch
+                      id="create-toggle-min-correct"
+                      checked={enableMinCorrect}
+                      onCheckedChange={setEnableMinCorrect}
+                    />
+                  </div>
+
+                  {enableMinCorrect && (
+                    <div className="pt-3 border-t border-indigo-200/60 dark:border-indigo-900/60 space-y-3 animate-in fade-in duration-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <Label htmlFor="create-min-correct-percent" className="text-xs font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
+                          <span>Tỷ lệ trả lời đúng tối thiểu:</span>
+                        </Label>
+                        <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                          <Input
+                            id="create-min-correct-percent"
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={minCorrectPercentage}
+                            onChange={(e) => {
+                              const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                              setMinCorrectPercentage(v);
+                            }}
+                            className="w-20 text-center font-bold h-9 bg-card border-indigo-300 dark:border-indigo-800"
+                          />
+                          <span className="text-sm font-bold text-indigo-700 dark:text-indigo-400">%</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() => setMinCorrectPercentage(pct)}
+                            className={`px-2.5 py-1 text-xs rounded-lg font-bold border transition-all ${
+                              minCorrectPercentage === pct
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                                : "bg-card hover:bg-indigo-100/50 dark:hover:bg-indigo-900/30 border-border text-muted-foreground"
+                            }`}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Sau khi nộp bài, học sinh chỉ được xem Đáp án và Lời giải khi tỷ lệ trả lời đúng đạt từ <b>{minCorrectPercentage}%</b> trở lên.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <ScheduleSettings value={schedule} onChange={setSchedule} />
+
+            <LockModeSettings value={lockMode} onChange={setLockMode} />
+
+            <ExamPasswordSettings value={passwordConfig} onChange={setPasswordConfig} />
+
+            <div className="flex items-center justify-between rounded-xl border border-border/80 bg-card p-4 hover:border-primary/40 transition-colors">
+              <div className="space-y-1 pr-4">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="allow-review" className="text-sm font-bold text-foreground cursor-pointer flex items-center gap-1.5">
+                    <span>👁️</span>
+                    <span>Cho học sinh xem đáp án ngay sau khi nộp bài</span>
+                  </Label>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${allowReview ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/30" : "bg-muted text-muted-foreground border"}`}>
+                    {allowReview ? "BẬT" : "TẮT"}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground leading-relaxed">
+                  {allowReview
+                    ? "Khi bật, học sinh đã nộp bài có thể xem đáp án chính thức trong tài khoản mà không cần chờ giáo viên đóng đề."
+                    : "Khi tắt, học sinh chỉ xem được đáp án chính thức sau khi giáo viên đóng đề theo cơ chế hiện tại."}
+                </div>
+              </div>
+              <Switch id="allow-review" checked={allowReview} onCheckedChange={setAllowReview} />
+            </div>
+
+
+
+            {missingQuestions.length > 0 && (
+              <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 text-xs text-amber-900 dark:text-amber-200 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-sm text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                  <span>Đề còn {missingQuestions.length} câu chưa có đáp án</span>
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  Vui lòng chọn hoặc nhập đáp án cho tất cả các câu hỏi bên dưới trước khi tạo link bài thi.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const el = document.getElementById(`q-preview-${missingQuestions[0]?.id}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  className="border-amber-500/40 hover:bg-amber-500/20 text-amber-900 dark:text-amber-100 font-semibold text-xs"
+                >
+                  Xem các câu thiếu đáp án
+                </Button>
+              </div>
+            )}
+
+            <Button
+              onClick={onCreate}
+              disabled={saving || !title || missingQuestions.length > 0 || !scoringValidation.valid}
+              className="w-full bg-gradient-primary disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
+              {missingQuestions.length > 0
+                ? "Vui lòng bổ sung đáp án trước khi tạo link"
+                : !scoringValidation.valid
+                ? "Vui lòng hoàn thiện cấu hình thang điểm 100 & tỷ lệ Phần II"
+                : "Tạo link bài thi"}
+            </Button>
+          </Card>
+        )}
+          </div>
+
+          {/* CỘT BÊN PHẢI (60%): Xem trước toàn bộ câu hỏi */}
+          <div
+            data-testid="teacher-right-column"
+            className="min-w-0 space-y-6 lg:h-full lg:overflow-y-auto lg:overflow-x-hidden lg:pr-2"
+          >
+
+        {exam && missingQuestions.length > 0 && (
+          <Card className="p-5 border-amber-500/60 bg-amber-500/10 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200">
+            <div className="flex items-center gap-2 font-bold text-base text-amber-800 dark:text-amber-300 mb-1">
+              <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span>⚠️ CẢNH BÁO: ĐỀ NGUỒN CÒN CÂU HỎI CHƯA CÓ ĐÁP ÁN</span>
+            </div>
+            <p className="text-sm leading-relaxed">
+              Hệ thống phát hiện <strong>{missingQuestions.length} câu chưa xác định được đáp án đúng</strong>.
+              Vui lòng kiểm tra và chọn đáp án cho các câu sau:
+            </p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {missingQuestions.map((iss) => (
+                <Button
+                  key={iss.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const el = document.getElementById(`q-preview-${iss.id}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  className="border-amber-400/60 bg-white dark:bg-slate-900 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-xs font-semibold rounded-lg shadow-xs"
+                >
+                  {iss.label}
+                </Button>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {exam && issues.length > 0 && (
+          <Card className="p-5 border-destructive/40 bg-destructive/5">
+            <div className="flex items-center gap-2 font-semibold text-destructive mb-2">
+              <AlertTriangle className="size-5" /> Phát hiện {issues.length} vấn đề định dạng
+            </div>
+            <ul className="text-sm space-y-1 list-disc pl-5">
+              {issues.map((iss, k) => (
+                <li key={k}>
+                  Phần {iss.part} — Câu {iss.idx + 1}: <span className="text-destructive">{iss.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        {exam ? (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Xem trước toàn bộ câu hỏi</h3>
+              <div className="text-xs text-muted-foreground">
+                I: {exam.partI.length} • II: {exam.partII.length} • III: {exam.partIII.length}
+                {imageStats.total > 0 && (
+                  <> • Hình ảnh: {imageStats.total} ({imageStats.inQuestions} ở câu hỏi, {imageStats.inOptions} ở phương án)</>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-6 text-sm">
+              {exam.partI.length > 0 && (
+                <section>
+                  <div className="font-bold text-primary mb-2">PHẦN I — Trắc nghiệm 4 phương án ({exam.partI.length} câu)</div>
+                  <div className="space-y-4">
+                    {exam.partI.map((q, i) => {
+                      const bad = issueSet.has(issueKey("I", i));
+                      const isMissing = !q.answer;
+                      return (
+                        <div
+                          key={q.id}
+                          id={`q-preview-${q.id}`}
+                          className={`border-l-4 pl-3.5 pr-2 py-2.5 rounded-r-xl transition-colors ${
+                            isMissing
+                              ? "border-amber-500 bg-amber-500/10 dark:bg-amber-950/20"
+                              : bad
+                              ? "border-destructive bg-destructive/5"
+                              : "border-primary bg-card/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium text-foreground">
+                              Câu {i + 1}: <RichText text={q.text} />
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isScale10Scoring(scoring) && scoring.perQuestion.p1 > 0 && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {formatScore(scoring.perQuestion.p1)}đ
+                                </span>
+                              )}
+                              {isMissing ? (
+                                <span className="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                  ⚠ Chưa xác định đáp án
+                                </span>
+                              ) : (
+                                <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                  ✓ Đáp án: {q.answer}
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteQuestion("I", q.id)}
+                                title="Xóa câu hỏi này"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 space-y-1">
+                            {q.options.map((o) => {
+                              const isChosen = o.key === q.answer;
+                              return (
+                                <div
+                                  key={o.key}
+                                  onClick={() => handleUpdateMCAnswer(q.id, o.key)}
+                                  className={`flex items-start gap-2 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                    isChosen
+                                      ? "bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 font-semibold"
+                                      : "hover:bg-muted/70 text-muted-foreground border border-transparent"
+                                  }`}
+                                  title={`Bấm để chọn ${o.key} làm đáp án đúng`}
+                                >
+                                  <span className="font-bold min-w-5">{o.key}.</span>
+                                  <div className="flex-1">
+                                    <RichText text={o.text} />
+                                  </div>
+                                  {isChosen ? (
+                                    <span className="text-emerald-600 font-bold shrink-0 text-xs">✓ Đáp án đúng</span>
+                                  ) : (
+                                    <span className="text-[11px] text-muted-foreground opacity-60 hover:opacity-100 shrink-0">
+                                      Chọn {o.key}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Quick answer buttons */}
+                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/60">
+                            <span className="text-xs font-medium text-muted-foreground">Chọn đáp án:</span>
+                            {(["A", "B", "C", "D"] as const).map((letter) => (
+                              <Button
+                                key={letter}
+                                type="button"
+                                size="sm"
+                                variant={q.answer === letter ? "default" : "outline"}
+                                onClick={() => handleUpdateMCAnswer(q.id, letter)}
+                                className={`h-7 px-3 text-xs font-bold rounded-lg ${
+                                  q.answer === letter
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                    : "border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                }`}
+                              >
+                                {letter}
+                              </Button>
+                            ))}
+                          </div>
+
+                          {q.explanation && (
+                            <div className="mt-2 rounded-md border-l-2 border-primary/40 bg-primary/5 p-2 text-xs">
+                              <div className="font-semibold text-primary mb-1">Lời giải</div>
+                              <div className="text-foreground whitespace-pre-wrap"><RichText text={q.explanation} /></div>
+                            </div>
+                          )}
+                          {bad && <div className="text-xs text-destructive mt-1">⚠ Câu này sai định dạng</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {exam.partII.length > 0 && (
+                <section>
+                  <div className="font-bold text-accent-foreground mb-2">PHẦN II — Đúng/Sai ({exam.partII.length} câu)</div>
+                  <div className="space-y-4">
+                    {exam.partII.map((q, i) => {
+                      const bad = issueSet.has(issueKey("II", i));
+                      const isMissing = q.items.some((it) => it.correct === null || it.correct === undefined);
+                      return (
+                        <div
+                          key={q.id}
+                          id={`q-preview-${q.id}`}
+                          className={`border-l-4 pl-3.5 pr-2 py-2.5 rounded-r-xl transition-colors ${
+                            isMissing
+                              ? "border-amber-500 bg-amber-500/10 dark:bg-amber-950/20"
+                              : bad
+                              ? "border-destructive bg-destructive/5"
+                              : "border-accent bg-card/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium text-foreground">
+                              Câu {i + 1}: <RichText text={q.text} />
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isScale10Scoring(scoring) && scoring.perQuestion.p2 > 0 && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {formatScore(scoring.perQuestion.p2)}đ (Theo tỷ lệ %)
+                                </span>
+                              )}
+                              {isMissing ? (
+                                <span className="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                  ⚠ Còn ý chưa xác định Đúng/Sai
+                                </span>
+                              ) : (
+                                <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                  ✓ Đã có đủ đáp án
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteQuestion("II", q.id)}
+                                title="Xóa câu hỏi này"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 space-y-1.5">
+                            {q.items.map((it) => (
+                              <div
+                                key={it.key}
+                                className="flex items-center justify-between gap-2 py-1 px-1.5 rounded-lg hover:bg-muted/40 transition-colors"
+                              >
+                                <div className="flex items-start gap-2 flex-1">
+                                  <span className="font-bold min-w-5 text-foreground">{it.key})</span>
+                                  <span className="flex-1 text-foreground">
+                                    <RichText text={it.text} />
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleUpdateTFItem(q.id, it.key, true)}
+                                    className={`h-7 px-2.5 text-xs font-bold rounded-lg ${
+                                      it.correct === true
+                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                        : "bg-transparent hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40"
+                                    }`}
+                                  >
+                                    Đúng
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleUpdateTFItem(q.id, it.key, false)}
+                                    className={`h-7 px-2.5 text-xs font-bold rounded-lg ${
+                                      it.correct === false
+                                        ? "bg-red-600 hover:bg-red-700 text-white shadow-xs"
+                                        : "bg-transparent hover:bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/40"
+                                    }`}
+                                  >
+                                    Sai
+                                  </Button>
+                                  {it.correct === null || it.correct === undefined ? (
+                                    <span className="text-[11px] text-amber-600 font-bold ml-1">⚠ Chưa chọn</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {q.explanation && (
+                            <div className="mt-2 rounded-md border-l-2 border-primary/40 bg-primary/5 p-2 text-xs">
+                              <div className="font-semibold text-primary mb-1">Lời giải</div>
+                              <div className="text-foreground whitespace-pre-wrap"><RichText text={q.explanation} /></div>
+                            </div>
+                          )}
+                          {bad && <div className="text-xs text-destructive mt-1">⚠ Câu này sai định dạng</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {exam.partIII.length > 0 && (
+                <section>
+                  <div className="font-bold text-warning mb-2">PHẦN III — Trả lời ngắn ({exam.partIII.length} câu)</div>
+                  <div className="space-y-4">
+                    {exam.partIII.map((q, i) => {
+                      const bad = issueSet.has(issueKey("III", i));
+                      const isMissing = !q.answer || !q.answer.trim();
+                      return (
+                        <div
+                          key={q.id}
+                          id={`q-preview-${q.id}`}
+                          className={`border-l-4 pl-3.5 pr-2 py-2.5 rounded-r-xl transition-colors ${
+                            isMissing
+                              ? "border-amber-500 bg-amber-500/10 dark:bg-amber-950/20"
+                              : bad
+                              ? "border-destructive bg-destructive/5"
+                              : "border-warning bg-card/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium text-foreground">
+                              Câu {i + 1}: <RichText text={q.text} />
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isScale10Scoring(scoring) && scoring.perQuestion.p3 > 0 && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {formatScore(scoring.perQuestion.p3)}đ
+                                </span>
+                              )}
+                              {isMissing ? (
+                                <span className="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                  ⚠ Chưa có đáp án ngắn
+                                </span>
+                              ) : (
+                                <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                  ✓ Đã có đáp án
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteQuestion("III", q.id)}
+                                title="Xóa câu hỏi này"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-xs font-bold text-muted-foreground shrink-0">Đáp án:</span>
+                            <Input
+                              type="text"
+                              value={q.answer || ""}
+                              onChange={(e) => handleUpdateSAAnswer(q.id, e.target.value)}
+                              placeholder="Nhập đáp án chính thức..."
+                              className="h-8 max-w-md text-xs font-semibold"
+                            />
+                          </div>
+
+                          {q.explanation && (
+                            <div className="mt-2 rounded-md border-l-2 border-primary/40 bg-primary/5 p-2 text-xs">
+                              <div className="font-semibold text-primary mb-1">Lời giải</div>
+                              <div className="text-foreground whitespace-pre-wrap"><RichText text={q.explanation} /></div>
+                            </div>
+                          )}
+                          {bad && <div className="text-xs text-destructive mt-1">⚠ Câu này sai định dạng</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+            </div>
+          </Card>
+        ) : (
+          <Card className="p-6 border-dashed">
+            <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground space-y-2">
+              <FileText className="size-10 opacity-40" />
+              <h3 className="font-semibold text-foreground">Xem trước toàn bộ câu hỏi</h3>
+              <p className="text-xs max-w-sm">
+                Tải file Word, PDF, Ảnh (OCR) hoặc nhập tay đề thi ở cột bên trái để xem trước danh sách câu hỏi tại đây.
+              </p>
+            </div>
+          </Card>
+        )}
+          </div>
+        </div>
+      </main>
+
+      <MissingAnswersAlertModal
+        isOpen={missingModalOpen}
+        onConfirm={() => setMissingModalOpen(false)}
+        missingQuestions={modalMissingList}
+      />
+    </div>
+  );
+}
